@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.27;
 
-import {Greeter} from "../src/Greeter.sol";
+import {DeckOfCards} from "../src/DeckOfCards.sol";
 import {Test} from "forge-std/Test.sol";
 
 contract GreeterTest is Test {
-    Greeter public greeter;
+    DeckOfCards public deckOfCards;
 
     function setUp() public {
         greeter = new Greeter("Hello, Hardhat!");
