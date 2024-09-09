@@ -1,0 +1,9 @@
+[
+  "constructor(uint64,address,bytes32)",
+  "error OnlyCoordinatorCanFulfill(address,address)",
+  "event ReturnedRandomness(uint256[])",
+  "function rawFulfillRandomWords(uint256,uint256[])",
+  "function requestRandomWords()",
+  "function s_randomWords(uint256) view returns (uint256)",
+  "function s_requestId() view returns (uint256)"
+]
