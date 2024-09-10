@@ -4,12 +4,28 @@ pragma solidity ^0.8.7;
 
 import {VRFCoordinatorV2Interface} from "@chainlink/contracts/src/v0.8/vrf/interfaces/VRFCoordinatorV2Interface.sol";
 import {VRFConsumerBaseV2} from "@chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol";
+import {Cards} from "./Cards.sol";
 
 /**
  * @title Deck of Cards
  * @notice A contract that you can use as a deck of cards in your game
  */
 contract DeckOfCards is VRFConsumerBaseV2 {
+    Cards public cardCollection;  
+
+    struct Deck {
+        uint8 numDecks;
+        uint256[] cardIds;
+        address[] authorizedPlayers;
+    }
+    uint256 public deckCounter;
+
+    mapping (uint256 deckId => Deck) private decks;
+    mapping (uint256 deckId => uint256 randomnessRequestId) public randomnessRequests;
+
+    //====================================
+    //     Chainlink VRF variables
+    //====================================
     VRFCoordinatorV2Interface immutable COORDINATOR;
 
     // Your subscription ID.
@@ -49,14 +65,33 @@ contract DeckOfCards is VRFConsumerBaseV2 {
      * @param keyHash - the gas lane to use, which specifies the maximum gas price to bump to
      */
     constructor(
+        Cards _cardCollection,
         uint64 subscriptionId,
         address vrfCoordinator,
         bytes32 keyHash
     ) VRFConsumerBaseV2(vrfCoordinator) {
+        cardCollection = _cardCollection;
+
         COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator);
         s_keyHash = keyHash;
         s_owner = msg.sender;
         s_subscriptionId = subscriptionId;
+    }
+
+    function createNewDeck(uint8 numDecks, address[] memory authorizedPlayers) external returns (uint256 deckId) {
+        deckId = deckCounter++;
+        Deck storage newDeck = decks[deckId];
+        newDeck.authorizedPlayers = authorizedPlayers;
+        newDeck.numDecks = numDecks;
+
+        uint256 expectedNumCards = 52 * numDecks;
+        newDeck.cardIds = new uint256[](expectedNumCards);
+
+        for (uint256 i = 0; i < expectedNumCards; i++) {
+            newDeck.cardIds[i] = i + 1;
+        }
+
+        return deckId;
     }
 
     /**
@@ -91,5 +126,9 @@ contract DeckOfCards is VRFConsumerBaseV2 {
     modifier onlyOwner() {
         require(msg.sender == s_owner);
         _;
+    }
+
+    function getDeck(uint256 deckId) public view returns (Deck memory) {
+        return decks[deckId];
     }
 }
