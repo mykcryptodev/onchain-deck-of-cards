@@ -4,15 +4,12 @@ pragma solidity ^0.8.27;
 import {DeckOfCards} from "../src/DeckOfCards.sol";
 import {Test} from "../lib/forge-std/src/Test.sol";
 import {VRFCoordinatorV2Mock} from "../src/VRFCoordinatorV2Mock.sol";
-import {Cards} from "../src/Cards.sol";
 
 contract DeckOfCardsTest is Test {
     DeckOfCards public deckOfCards;
     VRFCoordinatorV2Mock public vrfCoordinator;
-    Cards public cards;
     bytes32 private constant KEY_HASH = 0xd89b2bf150e3b9e13446986e571fb9cab24b13cea0a43ea20a6049a85cc807cc;
 
-    address public cardCollection;
     address public player1 = address(1);
     address public player2 = address(2);
     address public player3 = address(3);
@@ -38,30 +35,49 @@ contract DeckOfCardsTest is Test {
             subscriptionId,
             address(deckOfCards)
         );
-        cards = new Cards(address(deckOfCards));
+    }
+
+    function testCreateNewDeck() public {
+        uint256 expectedNumCards = 52;
+        address[] memory authorizedDealers = new address[](1);
+        authorizedDealers[0] = player1;
+        uint256 deckId = deckOfCards.createNewDeck(authorizedDealers);
+        assertTrue(deckId == 0);
+        assertTrue(deckOfCards.getDeck(deckId).cardIds.length == expectedNumCards);
     }
 
     function testGetRandomWords () public {
-        deckOfCards.requestRandomWords();
-        uint256 requestId = deckOfCards.s_requestId();
+        address[] memory authorizedDealers = new address[](1);
+        uint256 deckId = deckOfCards.createNewDeck(authorizedDealers);
+        deckOfCards.requestRandomWords(deckId);
+        uint256 requestId = deckOfCards.decksToRandomnessRequests(deckId);
         vrfCoordinator.fulfillRandomWords(
             requestId, 
             address(deckOfCards)
         );
-        uint256 firstRandomWord = deckOfCards.s_randomWords(0);
-        uint256 secondRandomWord = deckOfCards.s_randomWords(1);
-        // assert that each random word exists
-        assertTrue(firstRandomWord > 0);
-        assertTrue(secondRandomWord > 0);
+        uint256 randomness = deckOfCards.deckRandomness(0);
+        assertTrue(randomness > 0);
     }
 
-    function testCreateNewDeck() public {
-        uint8 numDecks = 1;
-        uint256 expectedNumCards = 52 * numDecks;
-        address[] memory authorizedPlayers = new address[](1);
-        authorizedPlayers[0] = player1;
-        uint256 deckId = deckOfCards.createNewDeck(numDecks, authorizedPlayers);
-        assertTrue(deckId == 0);
-        assertTrue(deckOfCards.getDeck(deckId).cardIds.length == expectedNumCards);
+    function testDealCards () public {
+        address[] memory authorizedDealers = new address[](1);
+        authorizedDealers[0] = player1;
+        uint256 deckId = deckOfCards.createNewDeck(authorizedDealers);
+        deckOfCards.requestRandomWords(deckId);
+        uint256 requestId = deckOfCards.decksToRandomnessRequests(deckId);
+        vrfCoordinator.fulfillRandomWords(
+            requestId, 
+            address(deckOfCards)
+        );
+        uint256 randomness = deckOfCards.deckRandomness(deckId);
+        assertTrue(randomness > 0);
+        
+        uint256 numToDeal = 5;
+        address[] memory players = new address[](1);
+        players[0] = player1;
+        vm.prank(player1);
+        deckOfCards.dealCards(deckId, numToDeal, players);
+        assertTrue(deckOfCards.getDeck(deckId).cardIds.length == 52 - numToDeal);
+        assertTrue(deckOfCards.getPlayerCards(deckId, player1).length == numToDeal);
     }
 }
