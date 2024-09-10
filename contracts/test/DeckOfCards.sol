@@ -22,8 +22,6 @@ contract DeckOfCardsTest is Test {
         vm.deal(player2, 10 ether);
         vm.deal(player3, 10 ether);
 
-        cards = new Cards();
-
         vrfCoordinator = new VRFCoordinatorV2Mock(
             100000000000000000, // fee
             1000000000 // gas price
@@ -32,7 +30,6 @@ contract DeckOfCardsTest is Test {
         // fund the subscription
         vrfCoordinator.fundSubscription(subscriptionId, 1 ether);
         deckOfCards = new DeckOfCards(
-            cards,
             subscriptionId,
             address(vrfCoordinator),
             KEY_HASH
@@ -41,6 +38,7 @@ contract DeckOfCardsTest is Test {
             subscriptionId,
             address(deckOfCards)
         );
+        cards = new Cards(address(deckOfCards));
     }
 
     function testGetRandomWords () public {

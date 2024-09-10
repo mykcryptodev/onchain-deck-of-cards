@@ -1,67 +1,69 @@
-// SPDX-License-Identifier: Unlicense
-pragma solidity ^0.8.27;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.18;
 
-import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
-import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-contract Cards is ERC721 {
-    using Strings for uint256;
+contract Cards is ERC721, Ownable {
+    using ECDSA for bytes32;
 
-    enum Suit {
-        HEARTS,
-        DIAMONDS,
-        CLUBS,
-        SPADES
+    struct Card {
+        bytes32 encryptedValue; // Encrypted card value (hash of card)
+        bool revealed;
+        string revealedValue; // Once revealed, store the value here
+        uint256 deckId; // The deck this card belongs to
     }
 
-    uint256 public constant MAX_SUPPLY = 52;
-    uint256 public totalSupply;
+    // Mapping from tokenId to Card metadata
+    mapping(uint256 => Card) private _cardData;
 
-    mapping(uint256 => Suit) public tokenIdToSuit;
-    mapping(uint256 => uint8) public tokenIdToValue;
+    // Event to log the reveal
+    event CardRevealed(uint256 tokenId, string revealedValue);
 
-    constructor() ERC721("Card NFT", "CARD") {
-        for (uint256 tokenId = 0; tokenId < MAX_SUPPLY; tokenId++) {
-            uint8 value = uint8(tokenId % 13 + 1);
-            Suit suit = Suit(tokenId / 13);
+    constructor(address _owner) ERC721("CardDeckNFT", "CDNFT") Ownable(_owner) {}
 
-            _mint(msg.sender, tokenId);
-            tokenIdToSuit[tokenId] = suit;
-            tokenIdToValue[tokenId] = value;
-
-            totalSupply++;
-        }
+    // Mint a card with encrypted metadata
+    function mintCard(address to, uint256 tokenId, uint256 deckId, bytes32 encryptedValue) external onlyOwner {
+        _safeMint(to, tokenId);
+        _cardData[tokenId] = Card({
+            encryptedValue: encryptedValue,
+            revealed: false,
+            revealedValue: "",
+            deckId: deckId
+        });
     }
 
-    function tokenURI(uint256 tokenId) public view virtual override returns (string memory) {
-        require(tokenId < MAX_SUPPLY, "Card does not exist");
+    // Function for the token owner to view their card value (encrypted)
+    function getEncryptedCardValue(uint256 tokenId) external view returns (bytes32) {
+        require(ownerOf(tokenId) == msg.sender, "You are not the owner of this card");
+        
+        return _cardData[tokenId].encryptedValue;
+    }
 
-        string memory suitSymbol;
-        if (tokenIdToSuit[tokenId] == Suit.HEARTS) {
-            suitSymbol = "H";
-        } else if (tokenIdToSuit[tokenId] == Suit.DIAMONDS) {
-            suitSymbol = "D";
-        } else if (tokenIdToSuit[tokenId] == Suit.CLUBS) {
-            suitSymbol = "C";
-        } else {
-            suitSymbol = "S";
-        }
+    // Function to reveal the card
+    function revealCard(uint256 tokenId, string memory revealedValue, bytes memory ownerSignature) external {
+        require(ownerOf(tokenId) == msg.sender, "Only the owner can reveal the card");
+        require(!_cardData[tokenId].revealed, "Card is already revealed");
 
-        string memory valueString;
-        if (tokenIdToValue[tokenId] == 1) {
-            valueString = "A";
-        } else if (tokenIdToValue[tokenId] == 11) {
-            valueString = "J";
-        } else if (tokenIdToValue[tokenId] == 12) {
-            valueString = "Q";
-        } else if (tokenIdToValue[tokenId] == 13) {
-            valueString = "K";
-        } else {
-            uint256 valueUint256 = uint256(tokenIdToValue[tokenId]);
-            valueString = valueUint256.toString();
-        }
+        // Verify the owner’s signature matches the revealed value
+        bytes32 messageHash = keccak256(abi.encodePacked(revealedValue, tokenId));
+        bytes32 ethSignedMessageHash = MessageHashUtils.toEthSignedMessageHash(messageHash);
+        address signer = ECDSA.recover(ethSignedMessageHash, ownerSignature);
+        require(signer == msg.sender, "Invalid signature");
 
-        return string.concat(valueString, suitSymbol);
+        // Mark the card as revealed and store the value
+        _cardData[tokenId].revealed = true;
+        _cardData[tokenId].revealedValue = revealedValue;
+
+        emit CardRevealed(tokenId, revealedValue);
+    }
+
+    // Function to view the revealed value (if revealed)
+    function getRevealedCardValue(uint256 tokenId) external view returns (string memory) {
+        require(_cardData[tokenId].revealed, "Card is not revealed yet");
+
+        return _cardData[tokenId].revealedValue;
     }
 }

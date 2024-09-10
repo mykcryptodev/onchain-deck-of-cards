@@ -65,13 +65,10 @@ contract DeckOfCards is VRFConsumerBaseV2 {
      * @param keyHash - the gas lane to use, which specifies the maximum gas price to bump to
      */
     constructor(
-        Cards _cardCollection,
         uint64 subscriptionId,
         address vrfCoordinator,
         bytes32 keyHash
     ) VRFConsumerBaseV2(vrfCoordinator) {
-        cardCollection = _cardCollection;
-
         COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator);
         s_keyHash = keyHash;
         s_owner = msg.sender;
@@ -133,5 +130,9 @@ contract DeckOfCards is VRFConsumerBaseV2 {
 
     function getDeck(uint256 deckId) public view returns (Deck memory) {
         return decks[deckId];
+    }
+
+    function setCardCollection(Cards _cardCollection) external onlyOwner {
+        cardCollection = _cardCollection;
     }
 }
