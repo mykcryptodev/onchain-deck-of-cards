@@ -80,16 +80,19 @@ contract DeckOfCards is VRFConsumerBaseV2 {
 
     function createNewDeck(uint8 numDecks, address[] memory authorizedPlayers) external returns (uint256 deckId) {
         deckId = deckCounter++;
-        Deck storage newDeck = decks[deckId];
-        newDeck.authorizedPlayers = authorizedPlayers;
-        newDeck.numDecks = numDecks;
-
         uint256 expectedNumCards = 52 * numDecks;
-        newDeck.cardIds = new uint256[](expectedNumCards);
+        Deck memory newDeck = Deck(
+            numDecks, 
+            new uint256[](expectedNumCards), 
+            authorizedPlayers
+        );
 
+        uint256[] memory cardIds = new uint256[](expectedNumCards);
         for (uint256 i = 0; i < expectedNumCards; i++) {
-            newDeck.cardIds[i] = i + 1;
+            cardIds[i] = i + 1;
         }
+        newDeck.cardIds = cardIds;
+        decks[deckId] = newDeck;
 
         return deckId;
     }

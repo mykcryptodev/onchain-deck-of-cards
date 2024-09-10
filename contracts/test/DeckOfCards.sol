@@ -63,7 +63,6 @@ contract DeckOfCardsTest is Test {
         address[] memory authorizedPlayers = new address[](1);
         authorizedPlayers[0] = player1;
         uint256 deckId = deckOfCards.createNewDeck(numDecks, authorizedPlayers);
-        // uint256 deckId = deckOfCards.deckCounter();
         assertTrue(deckId == 0);
         assertTrue(deckOfCards.getDeck(deckId).cardIds.length == expectedNumCards);
     }
