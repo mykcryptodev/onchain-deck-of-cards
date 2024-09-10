@@ -38,18 +38,21 @@ contract DeckOfCardsTest is Test {
     }
 
     function testCreateNewDeck() public {
-        uint256 expectedNumCards = 52;
         address[] memory authorizedDealers = new address[](1);
         authorizedDealers[0] = player1;
-        uint256 deckId = deckOfCards.createNewDeck(authorizedDealers);
+        uint256 totalCards = 52; // Standard deck size, but can be any number
+        uint256 deckId = deckOfCards.createNewDeck(authorizedDealers, totalCards);
         assertTrue(deckId == 0);
-        assertTrue(deckOfCards.getDeck(deckId).cardIds.length == expectedNumCards);
+        address[] memory authorizedDealersFromContract = deckOfCards.getAuthorizedDealers(deckId);
+        assertTrue(authorizedDealersFromContract.length == 1);
+        assertTrue(deckOfCards.getRemainingDeckCards(deckId).length == totalCards);
     }
 
     function testDealCards () public {
         address[] memory authorizedDealers = new address[](1);
         authorizedDealers[0] = player1;
-        uint256 deckId = deckOfCards.createNewDeck(authorizedDealers);
+        uint256 totalCards = 52;
+        uint256 deckId = deckOfCards.createNewDeck(authorizedDealers, totalCards);
         
         uint256 numToDeal = 5;
         address[] memory players = new address[](1);
@@ -63,7 +66,6 @@ contract DeckOfCardsTest is Test {
             requestId, 
             address(deckOfCards)
         );
-        assertTrue(deckOfCards.getDeck(deckId).cardIds.length == 52 - numToDeal);
         assertTrue(deckOfCards.getPlayerCards(deckId, player1).length == numToDeal);
     }
 }

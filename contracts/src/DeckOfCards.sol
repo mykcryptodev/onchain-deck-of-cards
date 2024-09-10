@@ -1,71 +1,65 @@
 // SPDX-License-Identifier: MIT
-// An example of a consumer contract that relies on a subscription for funding.
 pragma solidity ^0.8.7;
 
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {VRFCoordinatorV2Interface} from "@chainlink/contracts/src/v0.8/vrf/interfaces/VRFCoordinatorV2Interface.sol";
 import {VRFConsumerBaseV2} from "@chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol";
 
-/**
- * @title Deck of Cards
- * @notice A contract that you can use as a deck of cards in your game
- */
 contract DeckOfCards is VRFConsumerBaseV2 {
+    using EnumerableSet for EnumerableSet.UintSet;
+    using ECDSA for bytes32;
+
     struct Deck {
-        uint256[] cardIds; // 0 is Ace of Spades, 1 is 2 of Spades, ..., 51 is King of Diamonds
+        EnumerableSet.UintSet cardIds;
         address[] authorizedDealers;
+        uint256 totalCards;
     }
+
+    struct Card {
+        bytes encryptedValue;
+        address dealerPublicKey;
+        bool revealed;
+        uint8 suit;
+        uint8 value;
+        uint256 deckId;
+    }
+
     struct DealRequest {
         uint256 deckId;
         uint256 numCardsEach;
         address[] players;
     }
+
     uint256 public deckCounter;
+    uint256 public cardCounter;
 
-    mapping (uint256 deckId => Deck) private decks;
-    mapping (uint256 deckId => mapping(address player => uint256[] cardIds)) public playerCards;
+    mapping(uint256 deckId => Deck deck) private decks; // mapping deckId to Deck struct
+    mapping(uint256 deckId => mapping(address player => EnumerableSet.UintSet cardIds)) private playerCards; // mapping deckId and player address to a set of card IDs
+    mapping(uint256 cardId => Card card) public cards; // mapping cardId to Card struct
 
-    mapping (uint256 randomnessRequestId => uint256 deckId) public randomnessRequestsToDecks;
-    mapping (uint256 deckId => uint256 randomnessRequestId) public decksToRandomnessRequests;
-    mapping (uint256 deckId => uint256 randomness) public deckRandomness;
-    mapping (uint256 randomnessRequestId => DealRequest dealRequest) public dealRequests;
-
-    //====================================
-    //     Chainlink VRF variables
-    //====================================
+    // Chainlink VRF variables
     VRFCoordinatorV2Interface immutable COORDINATOR;
-
-    // Your subscription ID.
     uint64 immutable s_subscriptionId;
-
-    // The gas lane to use, which specifies the maximum gas price to bump to.
-    // For a list of available gas lanes on each network,
-    // see https://docs.chain.link/docs/vrf-contracts/#configurations
     bytes32 immutable s_keyHash;
-
-    // Depends on the number of requested values that you want sent to the
-    // fulfillRandomWords() function. Storing each word costs about 20,000 gas,
-    // so 100,000 is a safe default for this example contract. Test and adjust
-    // this limit based on the network that you select, the size of the request,
-    // and the processing of the callback request in the fulfillRandomWords()
-    // function.
     uint32 constant CALLBACK_GAS_LIMIT = 1000000;
-
-    // The default is 3, but you can set this higher.
     uint16 constant REQUEST_CONFIRMATIONS = 3;
-
-    // For this example, retrieve 1 random value in one request.
-    // Cannot exceed VRFCoordinatorV2.MAX_NUM_WORDS.
     uint32 constant NUM_WORDS = 1;
 
-    uint256[] public s_randomWords;
-    address s_owner;
+    mapping(uint256 requestId => uint256 deckId) public randomnessRequestsToDecks; // mapping randomness request ID to deckId
+    mapping(uint256 deckId => uint256 requestId) public decksToRandomnessRequests; // mapping deckId to randomness request ID
+    mapping(uint256 deckId => uint256 randomness) public deckRandomness; // mapping deckId to randomness value
+    mapping(uint256 deckId => DealRequest request) public dealRequests; // mapping deckId to DealRequest struct
 
+    event DeckCreated(uint256 indexed deckId);
+    event CardDealt(uint256 indexed deckId, address indexed player, uint256 cardId);
+    event CardsDealt(uint256 indexed deckId);
+    event CardRevealed(uint256 indexed cardId, uint8 suit, uint8 value);
     event ReturnedRandomness(uint256[] randomWords);
-    event CardsDealt(uint256 deckId);
-    
+
     error NotAuthorized();
 
-    modifier isAuthorizedDealer (uint256 deckId) {
+    modifier isAuthorizedDealer(uint256 deckId) {
         bool authorized = false;
         for (uint256 i = 0; i < decks[deckId].authorizedDealers.length; i++) {
             if (decks[deckId].authorizedDealers[i] == msg.sender) {
@@ -79,13 +73,6 @@ contract DeckOfCards is VRFConsumerBaseV2 {
         _;
     }
 
-    /**
-     * @notice Constructor inherits VRFConsumerBaseV2
-     *
-     * @param subscriptionId - the subscription ID that this contract uses for funding requests
-     * @param vrfCoordinator - coordinator, check https://docs.chain.link/docs/vrf-contracts/#configurations
-     * @param keyHash - the gas lane to use, which specifies the maximum gas price to bump to
-     */
     constructor(
         uint64 subscriptionId,
         address vrfCoordinator,
@@ -93,30 +80,35 @@ contract DeckOfCards is VRFConsumerBaseV2 {
     ) VRFConsumerBaseV2(vrfCoordinator) {
         COORDINATOR = VRFCoordinatorV2Interface(vrfCoordinator);
         s_keyHash = keyHash;
-        s_owner = msg.sender;
         s_subscriptionId = subscriptionId;
     }
 
-    function createNewDeck(address[] memory authorizedDealers) external returns (uint256 deckId) {
+    function createNewDeck(address[] memory authorizedDealers, uint256 totalCards) external returns (uint256 deckId) {
         deckId = deckCounter++;
 
-        // Initialize the deck with 52 cards
-        uint256[] memory cardIds = new uint256[](52);
-        for (uint256 i = 0; i < 52; i++) {
-            cardIds[i] = i;
+        Deck storage newDeck = decks[deckId];
+        newDeck.authorizedDealers = authorizedDealers;
+        newDeck.totalCards = totalCards;
+
+        // Initialize the deck with the specified number of cards
+        for (uint256 i = 0; i < totalCards; i++) {
+            uint256 cardId = cardCounter++;
+            newDeck.cardIds.add(cardId);
+            cards[cardId] = Card({
+                encryptedValue: "",
+                dealerPublicKey: address(0),
+                revealed: false,
+                suit: 0,
+                value: 0,
+                deckId: deckId
+            });
         }
 
-        Deck memory newDeck = Deck(
-            cardIds,
-            authorizedDealers
-        );
-
-        decks[deckId] = newDeck;
-
+        emit DeckCreated(deckId);
         return deckId;
     }
 
-    function dealCards (DealRequest memory dealRequest) external isAuthorizedDealer(dealRequest.deckId) {
+    function dealCards(DealRequest memory dealRequest) external isAuthorizedDealer(dealRequest.deckId) {
         _requestRandomWords(dealRequest);
     }
 
@@ -125,41 +117,69 @@ contract DeckOfCards is VRFConsumerBaseV2 {
         uint256 numCardsEach = dealRequest.numCardsEach;
         address[] memory players = dealRequest.players;
         Deck storage deck = decks[deckId];
-        require(deck.cardIds.length >= numCardsEach * players.length, "Not enough cards in the deck");
+        require(deck.cardIds.length() >= numCardsEach * players.length, "Not enough cards in the deck");
         
         uint256 randomness = deckRandomness[deckId];
         require(randomness != 0, "Randomness not yet returned");
 
-        uint256 remainingCards = deck.cardIds.length;
-
         for (uint256 i = 0; i < players.length; i++) {
             for (uint256 j = 0; j < numCardsEach; j++) {
-                // Generate a random index
-                uint256 randomIndex = uint256(keccak256(abi.encodePacked(randomness, block.timestamp, i, j))) % remainingCards;
-                uint256 cardId = deck.cardIds[randomIndex];
+                uint256 randomIndex = uint256(keccak256(abi.encodePacked(randomness, block.timestamp, i, j))) % deck.cardIds.length();
+                uint256 cardId = deck.cardIds.at(randomIndex);
 
-                // give the card to the player
-                playerCards[deckId][players[i]].push(cardId);
+                // Create an encrypted card
+                bytes memory encryptedValue = _encryptCard(cardId, players[i]);
+                cards[cardId] = Card({
+                    encryptedValue: encryptedValue,
+                    dealerPublicKey: msg.sender,
+                    revealed: false,
+                    suit: 0,
+                    value: 0,
+                    deckId: deckId
+                });
+
+                // Deal the card to the player
+                playerCards[deckId][players[i]].add(cardId);
                 
-                // Remove the dealt card by replacing it with the last card in the array
-                deck.cardIds[randomIndex] = deck.cardIds[remainingCards - 1];
-                deck.cardIds.pop();  // Remove the last card (now redundant)
-                remainingCards--;
+                // Remove the card from the deck
+                deck.cardIds.remove(cardId);
+
+                emit CardDealt(deckId, players[i], cardId);
             }
         }
 
         emit CardsDealt(deckId);
 
-        // delete the randomness value so that it cannot be used again
         delete deckRandomness[deckId];
     }
-    
-    /**
-     * @notice Requests randomness
-     * Assumes the subscription is funded sufficiently; "Words" refers to unit of data in Computer Science
-     */
+
+    function _encryptCard(uint256 cardId, address player) private view returns (bytes memory) {
+        // This is a placeholder. In a real implementation, you'd use proper encryption
+        return abi.encodePacked(keccak256(abi.encodePacked(cardId, player, block.timestamp)));
+    }
+
+    function revealCard(uint256 deckId, uint256 cardId, uint8 suit, uint8 value, bytes memory playerSignature) external {
+        require(cardId < 52, "Invalid card ID");
+        require(!cards[cardId].revealed, "Card already revealed");
+
+        address player = msg.sender;
+        require(playerCards[deckId][player].contains(cardId), "Not your card");
+
+        bytes32 message = keccak256(abi.encodePacked(cardId, suit, value));
+        bytes32 ethSignedMessageHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", message));
+        address signer = ethSignedMessageHash.recover(playerSignature);
+
+        require(signer == player, "Invalid signature");
+
+        Card storage card = cards[cardId];
+        card.revealed = true;
+        card.suit = suit;
+        card.value = value;
+
+        emit CardRevealed(cardId, suit, value);
+    }
+
     function _requestRandomWords(DealRequest memory dealRequest) private {
-        // Will revert if subscription is not set and funded.
         uint256 requestId = COORDINATOR.requestRandomWords(
             s_keyHash,
             s_subscriptionId,
@@ -172,12 +192,6 @@ contract DeckOfCards is VRFConsumerBaseV2 {
         dealRequests[requestId] = dealRequest;
     }
 
-    /**
-     * @notice Callback function used by VRF Coordinator
-     *
-     * @param requestId  - id of the request
-     * @param randomWords - array of random results from VRF Coordinator
-     */
     function fulfillRandomWords(
         uint256 requestId,
         uint256[] memory randomWords
@@ -195,16 +209,36 @@ contract DeckOfCards is VRFConsumerBaseV2 {
         delete dealRequests[requestId];
     }
 
-    modifier onlyOwner() {
-        require(msg.sender == s_owner);
-        _;
+    function getPlayerCards(uint256 deckId, address player) public view returns (uint256[] memory) {
+        EnumerableSet.UintSet storage playerHand = playerCards[deckId][player];
+        uint256[] memory _cards = new uint256[](playerHand.length());
+        for (uint256 i = 0; i < playerHand.length(); i++) {
+            _cards[i] = playerHand.at(i);
+        }
+        return _cards;
     }
 
-    function getDeck(uint256 deckId) public view returns (Deck memory) {
-        return decks[deckId];
+    function getRemainingDeckCards(uint256 deckId) public view returns (uint256[] memory) {
+        Deck storage deck = decks[deckId];
+        uint256[] memory remainingCards = new uint256[](deck.cardIds.length());
+        for (uint256 i = 0; i < deck.cardIds.length(); i++) {
+            remainingCards[i] = deck.cardIds.at(i);
+        }
+        return remainingCards;
     }
 
-    function getPlayerCards (uint256 deckId, address player) public view returns (uint256[] memory) {
-        return playerCards[deckId][player];
+    function getCardDetails(uint256 cardId) public view returns (
+        bytes memory encryptedValue,
+        address dealerPublicKey,
+        bool revealed,
+        uint8 suit,
+        uint8 value
+    ) {
+        Card storage card = cards[cardId];
+        return (card.encryptedValue, card.dealerPublicKey, card.revealed, card.suit, card.value);
+    }
+
+    function getAuthorizedDealers(uint256 deckId) public view returns (address[] memory) {
+        return decks[deckId].authorizedDealers;
     }
 }
