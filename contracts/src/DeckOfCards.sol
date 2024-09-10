@@ -14,6 +14,11 @@ contract DeckOfCards is VRFConsumerBaseV2 {
         uint256[] cardIds; // 0 is Ace of Spades, 1 is 2 of Spades, ..., 51 is King of Diamonds
         address[] authorizedDealers;
     }
+    struct DealRequest {
+        uint256 deckId;
+        uint256 numCardsEach;
+        address[] players;
+    }
     uint256 public deckCounter;
 
     mapping (uint256 deckId => Deck) private decks;
@@ -22,6 +27,7 @@ contract DeckOfCards is VRFConsumerBaseV2 {
     mapping (uint256 randomnessRequestId => uint256 deckId) public randomnessRequestsToDecks;
     mapping (uint256 deckId => uint256 randomnessRequestId) public decksToRandomnessRequests;
     mapping (uint256 deckId => uint256 randomness) public deckRandomness;
+    mapping (uint256 randomnessRequestId => DealRequest dealRequest) public dealRequests;
 
     //====================================
     //     Chainlink VRF variables
@@ -42,7 +48,7 @@ contract DeckOfCards is VRFConsumerBaseV2 {
     // this limit based on the network that you select, the size of the request,
     // and the processing of the callback request in the fulfillRandomWords()
     // function.
-    uint32 constant CALLBACK_GAS_LIMIT = 100000;
+    uint32 constant CALLBACK_GAS_LIMIT = 1000000;
 
     // The default is 3, but you can set this higher.
     uint16 constant REQUEST_CONFIRMATIONS = 3;
@@ -55,6 +61,7 @@ contract DeckOfCards is VRFConsumerBaseV2 {
     address s_owner;
 
     event ReturnedRandomness(uint256[] randomWords);
+    event CardsDealt(uint256 deckId);
     
     error NotAuthorized();
 
@@ -109,7 +116,14 @@ contract DeckOfCards is VRFConsumerBaseV2 {
         return deckId;
     }
 
-    function dealCards(uint256 deckId, uint256 numCardsEach, address[] memory players) external {
+    function dealCards (DealRequest memory dealRequest) external isAuthorizedDealer(dealRequest.deckId) {
+        _requestRandomWords(dealRequest);
+    }
+
+    function _dealRandomCards(DealRequest memory dealRequest) private {
+        uint256 deckId = dealRequest.deckId;
+        uint256 numCardsEach = dealRequest.numCardsEach;
+        address[] memory players = dealRequest.players;
         Deck storage deck = decks[deckId];
         require(deck.cardIds.length >= numCardsEach * players.length, "Not enough cards in the deck");
         
@@ -134,6 +148,8 @@ contract DeckOfCards is VRFConsumerBaseV2 {
             }
         }
 
+        emit CardsDealt(deckId);
+
         // delete the randomness value so that it cannot be used again
         delete deckRandomness[deckId];
     }
@@ -142,7 +158,7 @@ contract DeckOfCards is VRFConsumerBaseV2 {
      * @notice Requests randomness
      * Assumes the subscription is funded sufficiently; "Words" refers to unit of data in Computer Science
      */
-    function requestRandomWords(uint256 deckId) external onlyOwner {
+    function _requestRandomWords(DealRequest memory dealRequest) private {
         // Will revert if subscription is not set and funded.
         uint256 requestId = COORDINATOR.requestRandomWords(
             s_keyHash,
@@ -151,8 +167,9 @@ contract DeckOfCards is VRFConsumerBaseV2 {
             CALLBACK_GAS_LIMIT,
             NUM_WORDS
         );
-        randomnessRequestsToDecks[requestId] = deckId;
-        decksToRandomnessRequests[deckId] = requestId;
+        randomnessRequestsToDecks[requestId] = dealRequest.deckId;
+        decksToRandomnessRequests[dealRequest.deckId] = requestId;
+        dealRequests[requestId] = dealRequest;
     }
 
     /**
@@ -167,10 +184,15 @@ contract DeckOfCards is VRFConsumerBaseV2 {
     ) internal override {
         uint256 deckId = randomnessRequestsToDecks[requestId];
         deckRandomness[deckId] = randomWords[0];
+
+        DealRequest memory dealRequest = dealRequests[requestId];
+        _dealRandomCards(dealRequest);
+
         emit ReturnedRandomness(randomWords);
 
         delete randomnessRequestsToDecks[requestId];
         delete decksToRandomnessRequests[deckId];
+        delete dealRequests[requestId];
     }
 
     modifier onlyOwner() {

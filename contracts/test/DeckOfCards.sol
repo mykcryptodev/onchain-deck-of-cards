@@ -46,37 +46,23 @@ contract DeckOfCardsTest is Test {
         assertTrue(deckOfCards.getDeck(deckId).cardIds.length == expectedNumCards);
     }
 
-    function testGetRandomWords () public {
-        address[] memory authorizedDealers = new address[](1);
-        uint256 deckId = deckOfCards.createNewDeck(authorizedDealers);
-        deckOfCards.requestRandomWords(deckId);
-        uint256 requestId = deckOfCards.decksToRandomnessRequests(deckId);
-        vrfCoordinator.fulfillRandomWords(
-            requestId, 
-            address(deckOfCards)
-        );
-        uint256 randomness = deckOfCards.deckRandomness(0);
-        assertTrue(randomness > 0);
-    }
-
     function testDealCards () public {
         address[] memory authorizedDealers = new address[](1);
         authorizedDealers[0] = player1;
         uint256 deckId = deckOfCards.createNewDeck(authorizedDealers);
-        deckOfCards.requestRandomWords(deckId);
-        uint256 requestId = deckOfCards.decksToRandomnessRequests(deckId);
-        vrfCoordinator.fulfillRandomWords(
-            requestId, 
-            address(deckOfCards)
-        );
-        uint256 randomness = deckOfCards.deckRandomness(deckId);
-        assertTrue(randomness > 0);
         
         uint256 numToDeal = 5;
         address[] memory players = new address[](1);
         players[0] = player1;
         vm.prank(player1);
-        deckOfCards.dealCards(deckId, numToDeal, players);
+        DeckOfCards.DealRequest memory dealRequest = DeckOfCards.DealRequest(deckId, numToDeal, players);
+        deckOfCards.dealCards(dealRequest);
+
+        uint256 requestId = deckOfCards.decksToRandomnessRequests(deckId);
+        vrfCoordinator.fulfillRandomWords(
+            requestId, 
+            address(deckOfCards)
+        );
         assertTrue(deckOfCards.getDeck(deckId).cardIds.length == 52 - numToDeal);
         assertTrue(deckOfCards.getPlayerCards(deckId, player1).length == numToDeal);
     }
