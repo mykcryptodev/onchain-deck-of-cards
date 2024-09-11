@@ -156,7 +156,7 @@ contract DeckOfCards is VRFConsumerBaseV2 {
     }
 
     function _encryptCard(uint256 cardId, address player) private view returns (bytes memory) {
-        // This is a placeholder. In a real implementation, you'd use proper encryption
+        // Placeholder encryption
         return abi.encodePacked(keccak256(abi.encodePacked(cardId, player, block.timestamp)));
     }
 
