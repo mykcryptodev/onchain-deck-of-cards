@@ -68,4 +68,73 @@ contract DeckOfCardsTest is Test {
         );
         assertTrue(deckOfCards.getPlayerCards(deckId, player1).length == numToDeal);
     }
+
+    function createDeckAndDealCards(address dealer, address player, uint256 numToDeal) internal returns (uint256 deckId, uint256 cardId) {
+        // Create a new deck
+        address[] memory authorizedDealers = new address[](1);
+        authorizedDealers[0] = dealer;
+        uint256 totalCards = 52;
+        deckId = deckOfCards.createNewDeck(authorizedDealers, totalCards);
+        
+        // Deal cards
+        address[] memory players = new address[](1);
+        players[0] = player;
+        vm.prank(dealer);
+        DeckOfCards.DealRequest memory dealRequest = DeckOfCards.DealRequest(deckId, numToDeal, players);
+        deckOfCards.dealCards(dealRequest);
+
+        // Fulfill randomness request
+        uint256 requestId = deckOfCards.decksToRandomnessRequests(deckId);
+        vrfCoordinator.fulfillRandomWords(requestId, address(deckOfCards));
+
+        // Get the dealt card
+        uint256[] memory playerCards = deckOfCards.getPlayerCards(deckId, player);
+        require(playerCards.length == numToDeal, "Incorrect number of cards dealt");
+        cardId = playerCards[0];
+    }
+
+    function setupDeckAndDealCard(address dealer, address player) internal returns (uint256 deckId, uint256 cardId) {
+        // Create a new deck
+        address[] memory authorizedDealers = new address[](1);
+        authorizedDealers[0] = dealer;
+        uint256 totalCards = 52;
+        deckId = deckOfCards.createNewDeck(authorizedDealers, totalCards);
+        
+        // Deal cards
+        uint256 numToDeal = 1;
+        address[] memory players = new address[](1);
+        players[0] = player;
+        vm.prank(dealer);
+        DeckOfCards.DealRequest memory dealRequest = DeckOfCards.DealRequest(deckId, numToDeal, players);
+        deckOfCards.dealCards(dealRequest);
+
+        // Fulfill randomness request
+        uint256 requestId = deckOfCards.decksToRandomnessRequests(deckId);
+        vrfCoordinator.fulfillRandomWords(requestId, address(deckOfCards));
+
+        // Get the dealt card
+        uint256[] memory playerCards = deckOfCards.getPlayerCards(deckId, player);
+        require(playerCards.length == 1, "Player should have 1 card");
+        cardId = playerCards[0];
+    }
+
+    function testRevealCard() public {
+        (uint256 deckId, uint256 cardId) = setupDeckAndDealCard(player1, player2);
+
+        uint8 suit = 1; // Hearts
+        uint8 value = 13; // King
+        bytes32 message = keccak256(abi.encodePacked(cardId, suit, value));
+        bytes32 ethSignedMessageHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", message));
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(2, ethSignedMessageHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.prank(player2);
+        deckOfCards.revealCard(deckId, cardId, suit, value, signature);
+
+        (,, bool revealed, uint8 revealedSuit, uint8 revealedValue) = deckOfCards.getCardDetails(cardId);
+        assertTrue(revealed, "Card should be revealed");
+        assertEq(revealedSuit, suit, "Revealed suit should match");
+        assertEq(revealedValue, value, "Revealed value should match");
+    }
 }

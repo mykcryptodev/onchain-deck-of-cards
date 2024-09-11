@@ -6,6 +6,8 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {VRFCoordinatorV2Interface} from "@chainlink/contracts/src/v0.8/vrf/interfaces/VRFCoordinatorV2Interface.sol";
 import {VRFConsumerBaseV2} from "@chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol";
 
+import "hardhat/console.sol";
+
 contract DeckOfCards is VRFConsumerBaseV2 {
     using EnumerableSet for EnumerableSet.UintSet;
     using ECDSA for bytes32;
